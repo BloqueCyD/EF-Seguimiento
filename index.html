@@ -19,6 +19,7 @@
     --olive:#6B7A4F;
     --ochre:#C08A2E;
     --brick:#9C4A3C;
+    --violet:#6E5A87;
     --line:#D9D2C2;
     --card:#FFFEFA;
     --shadow: 0 1px 2px rgba(32,30,26,0.06), 0 4px 14px rgba(32,30,26,0.07);
@@ -260,7 +261,7 @@
     overflow-x:auto;
   }
   .kanban.kanban-3col{
-    grid-template-columns: repeat(3, minmax(260px,1fr));
+    grid-template-columns: repeat(auto-fit, minmax(200px,1fr));
   }
   @media (max-width:900px){ .kanban{ grid-template-columns:1fr; } }
 
@@ -271,6 +272,7 @@
     display:flex; flex-direction:column;
     min-height:200px;
     max-height:640px;
+    animation: colIn .3s ease both;
   }
   .kcol-head{
     padding:13px 14px 11px;
@@ -301,6 +303,7 @@
     cursor:grab;
     box-shadow:var(--shadow);
     transition: transform 0.12s ease, box-shadow 0.12s ease;
+    animation: cardIn .3s ease both;
   }
   .kcard:hover{ transform:translateY(-1px); box-shadow:0 2px 4px rgba(32,30,26,0.08), 0 8px 18px rgba(32,30,26,0.09); }
   .kcard.dragging{ opacity:0.4; }
@@ -325,6 +328,11 @@
   .kcard .hoja-tag{
     background:var(--navy); color:#fff;
   }
+  .kcard .modo-tag{
+    background:transparent; border:1px solid currentColor;
+  }
+  .kcard .modo-tag.con_acto{ color:var(--olive); }
+  .kcard .modo-tag.sin_acto{ color:var(--ink-soft); }
 
   /* ---------- Table view ---------- */
   .table-wrap{
@@ -419,6 +427,127 @@
     font-family:'JetBrains Mono',monospace; font-size:10.5px; opacity:0.75; margin-left:5px;
   }
 
+  /* ---------- Gráficos (donut + barras) ---------- */
+  .viz-grid{
+    display:grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap:14px;
+    margin-bottom:36px;
+  }
+  @media (max-width:800px){ .viz-grid{ grid-template-columns:1fr; } }
+
+  .viz-card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:16px 18px;
+    box-shadow:var(--shadow);
+    animation: fadeInUp .35s ease both;
+  }
+  .viz-card-title{
+    font-size:11.5px; text-transform:uppercase; letter-spacing:0.06em;
+    color:var(--ink-soft); font-weight:600; margin-bottom:12px;
+    display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;
+  }
+  .viz-hint{
+    font-size:10.5px; text-transform:none; letter-spacing:0; font-weight:400;
+    color:var(--ink-soft); opacity:0.65;
+  }
+  .viz-card-body{ display:flex; align-items:center; min-height:170px; }
+
+  /* Donut hecho con conic-gradient (más robusto que un donut SVG a mano) */
+  .donut-wrap{ display:flex; align-items:center; gap:22px; flex-wrap:wrap; width:100%; }
+  .donut-ring{
+    width:150px; height:150px; border-radius:50%; flex-shrink:0;
+    position:relative;
+    transition: background 0.3s ease;
+  }
+  .donut-ring::after{
+    content:""; position:absolute; inset:20px; border-radius:50%;
+    background:var(--card);
+  }
+  .donut-center{
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+  }
+  .donut-total{
+    font-family:'Source Serif 4', serif; font-size:27px; font-weight:700; color:var(--ink);
+    line-height:1;
+  }
+  .donut-total-label{
+    font-family:'JetBrains Mono', monospace; font-size:8.5px;
+    letter-spacing:0.08em; color:var(--ink-soft); margin-top:3px;
+  }
+  .donut-legend{
+    display:flex; flex-direction:column; gap:4px; flex:1; min-width:160px;
+  }
+  .legend-row{
+    display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--ink);
+    font-family:'Inter',sans-serif;
+    background:none; border:1px solid transparent; border-radius:6px;
+    padding:6px 8px; margin:0; cursor:pointer; width:100%; text-align:left;
+    transition: background 0.12s ease, border-color 0.12s ease;
+  }
+  .legend-row:hover{ background:var(--paper-dim); }
+  .legend-row.active{ background:var(--paper-dim); border-color:var(--line); font-weight:600; }
+  .legend-dot{ width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+  .legend-label{ flex:1; }
+  .legend-value{
+    font-family:'JetBrains Mono', monospace; font-size:11px; color:var(--ink-soft);
+  }
+
+  /* Gráfico de barras en HTML/CSS (más robusto en pantallas chicas que un SVG a medida) */
+  .bar-chart{
+    display:flex; align-items:flex-end; gap:8px;
+    width:100%; height:170px; padding-top:6px;
+  }
+  .bar-col{
+    flex:1; min-width:0; height:100%;
+    display:flex; flex-direction:column; align-items:center; justify-content:flex-end;
+    gap:6px; background:none; border:none; cursor:pointer; padding:0;
+    font-family:'Inter',sans-serif;
+  }
+  .bar-val{
+    font-family:'JetBrains Mono', monospace; font-size:11px; color:var(--ink-soft);
+  }
+  .bar-fill-wrap{
+    width:100%; max-width:44px; flex:1; display:flex; align-items:flex-end;
+  }
+  .bar-fill{
+    width:100%; min-height:3px; border-radius:4px 4px 0 0;
+    background:var(--navy);
+    transform-origin:bottom; animation: barGrow .5s ease both;
+    transition: background 0.15s ease;
+  }
+  .bar-col:hover .bar-fill{ background:var(--navy-deep); }
+  .bar-col.active .bar-fill{ background:var(--ochre); }
+  .bar-lbl{
+    font-size:10.5px; color:var(--ink-soft);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;
+  }
+  .bar-col.active .bar-lbl{ color:var(--ink); font-weight:600; }
+  @keyframes barGrow{
+    from{ transform:scaleY(0); }
+    to{ transform:scaleY(1); }
+  }
+
+  .resumen-num{ font-weight:700; color:var(--navy); }
+
+  /* ---------- Animaciones de entrada al filtrar ---------- */
+  @keyframes cardIn{
+    from{ opacity:0; transform:translateY(6px); }
+    to{ opacity:1; transform:translateY(0); }
+  }
+  @keyframes colIn{
+    from{ opacity:0; transform:translateY(4px); }
+    to{ opacity:1; transform:translateY(0); }
+  }
+  @keyframes fadeInUp{
+    from{ opacity:0; transform:translateY(8px); }
+    to{ opacity:1; transform:translateY(0); }
+  }
+  .stat-card{ animation: fadeInUp .35s ease both; }
+
 </style>
 </head>
 <body>
@@ -478,6 +607,13 @@
 
       <div class="section-label">
         <span class="num">04</span>
+        <h2>Gráficos</h2>
+        <span class="rule"></span>
+      </div>
+      <div class="viz-grid" id="seguimiento-charts"></div>
+
+      <div class="section-label">
+        <span class="num">05</span>
         <h2>Detalle completo</h2>
         <span class="rule"></span>
       </div>
@@ -510,9 +646,17 @@
         <span class="rule"></span>
       </div>
       <div class="diplomas-resumen" id="diplomas-resumen"></div>
+
       <div class="kanban-wrap">
         <div class="kanban kanban-3col" id="kanban-diplomas-board"></div>
       </div>
+
+      <div class="section-label">
+        <span class="num">03</span>
+        <h2>Gráficos</h2>
+        <span class="rule"></span>
+      </div>
+      <div class="viz-grid" id="diplomas-charts"></div>
 
       <div class="export-bar" id="export-bar-diplomas"></div>
 

@@ -20,6 +20,7 @@ const COL = {
   diploma: "¿Pedimos el diploma?",
   fechaIngreso: "¿Fecha ingreso?",
   fechaAprobacion: "¿Fecha de aprobación?",
+  modoEntrega: "Modo de entrega", // "Con acto" / "Sin acto"
 };
 
 // Valor especial para agrupar los proyectos sin año detectable.
@@ -54,29 +55,53 @@ function getAnio(row, titulo) {
   return SIN_FECHA;
 }
 
-// Las 3 categorías simples para agrupar el campo "¿Pedimos el diploma?",
-// que en la planilla real tiene muchos valores parecidos pero no idénticos.
+// Las 6 categorías reales del campo "¿Pedimos el diploma?", cada una es
+// su propia columna en el Kanban de la pestaña Diplomas.
 const DIPLOMA_CATEGORIAS = [
+  { id: "sin_pedir", nombre: "Sin pedir", color: "#9C8B5E" },
+  { id: "pedido", nombre: "Pedido", color: "#1E3A5F" },
+  { id: "oficina", nombre: "Oficina", color: "#C08A2E" },
+  { id: "protocolo", nombre: "Protocolo", color: "#6E5A87" },
   { id: "entregado", nombre: "Entregado", color: "#6B7A4F" },
-  { id: "pendiente", nombre: "Pendiente de entrega", color: "#C08A2E" },
-  { id: "no_corresponde", nombre: "No corresponde", color: "#9C8B5E" },
+  { id: "no_pedir", nombre: "No pedir", color: "#9C4A3C" },
 ];
 
-// Mapeo de cada valor real (normalizado, sin tildes/mayúsculas) a su categoría.
+// Mapeo de cada valor real de la celda (normalizado: sin tildes/mayúsculas)
+// a su categoría. Incluye alias por si en algún momento se cargó con otra
+// redacción (ej. "en protocolo" en vez de "Protocolo").
 const DIPLOMA_MAPEO = {
+  "pedido": "pedido",
+  "pedir": "pedido",        // alias
+  "sin pedir": "sin_pedir",
+  "oficina": "oficina",
+  "en la oficina": "oficina", // alias
+  "protocolo": "protocolo",
+  "en protocolo": "protocolo", // alias
   "entregado": "entregado",
-  "no se entrega": "no_corresponde",
-  "no pedir": "no_corresponde",
-  "en la oficina": "pendiente",
-  "en protocolo": "pendiente",
-  "oficina": "pendiente",
-  "": "pendiente",
+  "no pedir": "no_pedir",
+  "no se entrega": "no_pedir", // alias
+  "": "sin_pedir",
 };
 
 function getDiplomaCategoria(row) {
   const v = normaliza(row[COL.diploma]);
-  const id = DIPLOMA_MAPEO.hasOwnProperty(v) ? DIPLOMA_MAPEO[v] : "pendiente";
+  const id = DIPLOMA_MAPEO.hasOwnProperty(v) ? DIPLOMA_MAPEO[v] : "sin_pedir";
   return DIPLOMA_CATEGORIAS.find((c) => c.id === id);
+}
+
+// Caracterización de la entrega: "Con acto" o "Sin acto", según la columna
+// "Modo de entrega" de la planilla. Devuelve null si todavía no está definida.
+const MODOS_ENTREGA = [
+  { id: "con_acto", nombre: "Con acto" },
+  { id: "sin_acto", nombre: "Sin acto" },
+];
+
+function getModoEntrega(row) {
+  const v = normaliza(row[COL.modoEntrega]);
+  if (!v) return null;
+  if (v.includes("sin")) return MODOS_ENTREGA[1];
+  if (v.includes("con")) return MODOS_ENTREGA[0];
+  return null; // valor no reconocido, lo tratamos como "sin especificar"
 }
 
 // Las 4 etapas del Kanban, en orden, con su color y la lógica de detección.
@@ -143,6 +168,8 @@ let FILTROS = {
 let FILTROS_DIPLOMAS = {
   eje: "TODOS",
   diploma: [],        // array vacío = todas las categorías
+  anios: [],          // array vacío = todos los años
+  modoEntrega: [],    // array vacío = todos ("con_acto" / "sin_acto")
   busqueda: "",
 };
 let autoRefreshTimer = null;
@@ -294,19 +321,28 @@ function getAllItemsDiplomas() {
   if (!hoja) return [];
   return hoja.rows
     .filter((row) => normaliza(row[COL.aprobado]) === "aprobado")
-    .map((row) => ({
-      sheet: "DECLARACIONES DE INTERÉS",
-      titulo: getTitulo(row, "DECLARACIONES DE INTERÉS"),
-      eje: getEje(row),
-      diplomaCategoria: getDiplomaCategoria(row),
-      row: row,
-    }));
+    .map((row) => {
+      const titulo = getTitulo(row, "DECLARACIONES DE INTERÉS");
+      return {
+        sheet: "DECLARACIONES DE INTERÉS",
+        titulo: titulo,
+        eje: getEje(row),
+        anio: getAnio(row, titulo),
+        diplomaCategoria: getDiplomaCategoria(row),
+        modoEntrega: getModoEntrega(row),
+        row: row,
+      };
+    });
 }
 
 function getItemsDiplomasFiltrados() {
   let items = getAllItemsDiplomas();
   if (FILTROS_DIPLOMAS.eje !== "TODOS") items = items.filter((i) => i.eje === FILTROS_DIPLOMAS.eje);
   if (FILTROS_DIPLOMAS.diploma.length > 0) items = items.filter((i) => FILTROS_DIPLOMAS.diploma.includes(i.diplomaCategoria.id));
+  if (FILTROS_DIPLOMAS.anios.length > 0) items = items.filter((i) => FILTROS_DIPLOMAS.anios.includes(i.anio));
+  if (FILTROS_DIPLOMAS.modoEntrega.length > 0) {
+    items = items.filter((i) => i.modoEntrega && FILTROS_DIPLOMAS.modoEntrega.includes(i.modoEntrega.id));
+  }
   if (FILTROS_DIPLOMAS.busqueda.trim() !== "") {
     const q = normaliza(FILTROS_DIPLOMAS.busqueda);
     items = items.filter((i) => normaliza(i.titulo).includes(q));
@@ -318,6 +354,18 @@ function getEjesUnicosDiplomas() {
   const set = new Set();
   getAllItemsDiplomas().forEach((i) => set.add(i.eje));
   return Array.from(set).filter(Boolean).sort();
+}
+
+function getAniosUnicosDiplomas() {
+  const set = new Set();
+  getAllItemsDiplomas().forEach((i) => set.add(i.anio));
+  const arr = Array.from(set).filter(Boolean);
+  arr.sort((a, b) => {
+    if (a === SIN_FECHA) return 1;
+    if (b === SIN_FECHA) return -1;
+    return Number(b) - Number(a);
+  });
+  return arr;
 }
 
 function getEjesUnicos() {
@@ -349,6 +397,7 @@ function renderOverview() {
   const aprobados = items.filter((i) => i.etapa.id === "aprobado").length;
   const enComision = items.filter((i) => i.etapa.id === "comision").length;
   const ingresados = items.filter((i) => i.etapa.id === "ingresado").length;
+  const redactados = items.filter((i) => i.etapa.id === "redactado").length;
   const pct = total ? Math.round((aprobados / total) * 100) : 0;
 
   const porEje = {};
@@ -358,22 +407,22 @@ function renderOverview() {
   const html = `
     <div class="stat-card">
       <div class="label">Total de items</div>
-      <div class="value">${total}</div>
+      <div class="value" data-count="${total}">0</div>
       <div class="sub">en las 4 hojas combinadas</div>
     </div>
     <div class="stat-card">
       <div class="label">Aprobados</div>
-      <div class="value" style="color:var(--olive)">${aprobados}</div>
+      <div class="value" style="color:var(--olive)" data-count="${aprobados}">0</div>
       <div class="sub">${pct}% del total filtrado</div>
     </div>
     <div class="stat-card">
       <div class="label">En comisión</div>
-      <div class="value" style="color:var(--ochre)">${enComision}</div>
+      <div class="value" style="color:var(--ochre)" data-count="${enComision}">0</div>
       <div class="sub">con giro parlamentario activo</div>
     </div>
     <div class="stat-card">
       <div class="label">Ingresados</div>
-      <div class="value" style="color:var(--navy)">${ingresados}</div>
+      <div class="value" style="color:var(--navy)" data-count="${ingresados}">0</div>
       <div class="sub">esperando tratamiento</div>
     </div>
     <div class="stat-card chart-card">
@@ -384,7 +433,66 @@ function renderOverview() {
     </div>
   `;
   document.getElementById("overview-stats").innerHTML = html;
+  document.querySelectorAll("#overview-stats .value[data-count]").forEach((el) => {
+    animarNumero(el, Number(el.dataset.count));
+  });
+
+  renderGraficosSeguimiento(items);
 }
+
+function renderGraficosSeguimiento(items) {
+  const cont = document.getElementById("seguimiento-charts");
+  if (!cont) return;
+
+  const porEtapa = ETAPAS.map((e) => ({
+    id: e.id,
+    label: e.nombre,
+    value: items.filter((i) => i.etapa.id === e.id).length,
+    color: e.color,
+    active: FILTROS.etapas.includes(e.id),
+  }));
+
+  const anios = getAniosUnicos().slice().reverse(); // ascendente, para leer la evolución
+  const porAnio = anios.map((a) => ({
+    id: a,
+    label: a === SIN_FECHA ? "S/F" : a,
+    value: items.filter((i) => i.anio === a).length,
+    active: FILTROS.anios.includes(a),
+  }));
+
+  cont.innerHTML = `
+    <div class="viz-card">
+      <div class="viz-card-title">Distribución por etapa <span class="viz-hint">(clic para filtrar)</span></div>
+      <div class="viz-card-body">
+        ${renderDonutHTML(porEtapa)}
+      </div>
+    </div>
+    <div class="viz-card">
+      <div class="viz-card-title">Proyectos por año <span class="viz-hint">(clic para filtrar)</span></div>
+      <div class="viz-card-body">
+        ${porAnio.length ? renderBarrasHTML(porAnio) : `<div class="empty-state">Sin datos de años con estos filtros.</div>`}
+      </div>
+    </div>
+  `;
+
+  cont.querySelectorAll("[data-legend-id]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.legendId;
+      const idx = FILTROS.etapas.indexOf(id);
+      if (idx === -1) FILTROS.etapas.push(id); else FILTROS.etapas.splice(idx, 1);
+      renderFiltros(); renderOverview(); renderKanban(); renderTabla();
+    });
+  });
+  cont.querySelectorAll("[data-bar-id]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const anio = btn.dataset.barId;
+      const idx = FILTROS.anios.indexOf(anio);
+      if (idx === -1) FILTROS.anios.push(anio); else FILTROS.anios.splice(idx, 1);
+      renderFiltros(); renderOverview(); renderKanban(); renderTabla();
+    });
+  });
+}
+
 
 function renderBarrasEjes(porEje, total) {
   const entries = Object.entries(porEje).sort((a, b) => b[1] - a[1]).slice(0, 5);
@@ -692,6 +800,7 @@ function renderSelectorVista() {
 
 function renderFiltrosDiplomas() {
   const ejes = getEjesUnicosDiplomas();
+  const anios = getAniosUnicosDiplomas();
   const html = `
     <div class="filter-group" style="flex:2; min-width:220px;">
       <label>Buscar declaración</label>
@@ -710,6 +819,24 @@ function renderFiltrosDiplomas() {
         ${DIPLOMA_CATEGORIAS.map((c) => {
           const activa = FILTROS_DIPLOMAS.diploma.includes(c.id);
           return `<span class="pill ${activa?'active':''}" data-cat="${c.id}" style="${activa?`background:${c.color};border-color:${c.color};`:''}">${c.nombre}</span>`;
+        }).join("")}
+      </div>
+    </div>
+    <div class="filter-group" style="min-width:220px;">
+      <label>Año <span style="text-transform:none; font-weight:400; opacity:0.7;">(elegí uno o varios)</span></label>
+      <div class="filter-pills" id="fd-anios">
+        ${anios.map((a) => {
+          const activa = FILTROS_DIPLOMAS.anios.includes(a);
+          return `<span class="pill ${activa?'active':''}" data-anio="${a}">${a}</span>`;
+        }).join("")}
+      </div>
+    </div>
+    <div class="filter-group" style="min-width:220px;">
+      <label>Modo de entrega <span style="text-transform:none; font-weight:400; opacity:0.7;">(con o sin acto)</span></label>
+      <div class="filter-pills" id="fd-modo">
+        ${MODOS_ENTREGA.map((m) => {
+          const activa = FILTROS_DIPLOMAS.modoEntrega.includes(m.id);
+          return `<span class="pill ${activa?'active':''}" data-modo="${m.id}">${m.nombre}</span>`;
         }).join("")}
       </div>
     </div>
@@ -734,8 +861,26 @@ function renderFiltrosDiplomas() {
       renderFiltrosDiplomas(); renderKanbanDiplomas();
     });
   });
+  document.querySelectorAll("#fd-anios .pill").forEach((pill) => {
+    pill.addEventListener("click", () => {
+      const anio = pill.dataset.anio;
+      const idx = FILTROS_DIPLOMAS.anios.indexOf(anio);
+      if (idx === -1) FILTROS_DIPLOMAS.anios.push(anio);
+      else FILTROS_DIPLOMAS.anios.splice(idx, 1);
+      renderFiltrosDiplomas(); renderKanbanDiplomas();
+    });
+  });
+  document.querySelectorAll("#fd-modo .pill").forEach((pill) => {
+    pill.addEventListener("click", () => {
+      const id = pill.dataset.modo;
+      const idx = FILTROS_DIPLOMAS.modoEntrega.indexOf(id);
+      if (idx === -1) FILTROS_DIPLOMAS.modoEntrega.push(id);
+      else FILTROS_DIPLOMAS.modoEntrega.splice(idx, 1);
+      renderFiltrosDiplomas(); renderKanbanDiplomas();
+    });
+  });
   document.getElementById("fd-clear").addEventListener("click", () => {
-    FILTROS_DIPLOMAS = { eje: "TODOS", diploma: [], busqueda: "" };
+    FILTROS_DIPLOMAS = { eje: "TODOS", diploma: [], anios: [], modoEntrega: [], busqueda: "" };
     renderFiltrosDiplomas(); renderKanbanDiplomas();
   });
 }
@@ -760,29 +905,157 @@ function renderKanbanDiplomas() {
     `;
   }).join("");
 
-  // El total de referencia para el % excluye "No corresponde": esos diplomas
+  // El total de referencia para el % excluye "No pedir": esos diplomas
   // nunca se iban a entregar, así que no deben contarse como "pendientes".
-  const itemsQueCorresponden = items.filter((i) => i.diplomaCategoria.id !== "no_corresponde");
+  const itemsQueCorresponden = items.filter((i) => i.diplomaCategoria.id !== "no_pedir");
   const totalQueCorresponde = itemsQueCorresponden.length;
   const entregados = items.filter((i) => i.diplomaCategoria.id === "entregado").length;
   const pct = totalQueCorresponde ? Math.round((entregados / totalQueCorresponde) * 100) : 0;
   const resumenEl = document.getElementById("diplomas-resumen");
   if (resumenEl) {
-    resumenEl.textContent = totalQueCorresponde
-      ? `${entregados} de ${totalQueCorresponde} diplomas entregados (${pct}%) — sin contar los que no corresponden`
+    resumenEl.innerHTML = totalQueCorresponde
+      ? `<span class="resumen-num" data-count="${entregados}">0</span> de ${totalQueCorresponde} diplomas entregados (<span class="resumen-num" data-count="${pct}">0</span>%) — sin contar los que no se piden`
       : "No hay declaraciones aprobadas con diploma pendiente o entregado, con estos filtros.";
+    resumenEl.querySelectorAll(".resumen-num").forEach((el) => {
+      animarNumero(el, Number(el.dataset.count));
+    });
   }
+
+  renderGraficosDiplomas(items);
 }
 
 function renderCardDiploma(item) {
+  const modoTag = item.modoEntrega
+    ? `<span class="tag modo-tag ${item.modoEntrega.id}">${item.modoEntrega.nombre}</span>`
+    : "";
   return `
     <div class="kcard" style="cursor:default;">
       <span class="title">${escapeHtml(item.titulo)}</span>
       <div class="meta">
         <span class="tag">${escapeHtml(item.eje)}</span>
+        <span class="tag">${escapeHtml(item.anio)}</span>
+        ${modoTag}
       </div>
     </div>
   `;
+}
+
+/* =========================================================================
+   RENDER: gráficos (torta de estados + evolución por año)
+   ========================================================================= */
+
+function animarNumero(el, destino, duracionMs = 700) {
+  if (!el) return;
+  const inicio = 0;
+  const t0 = performance.now();
+  function paso(ahora) {
+    const p = Math.min(1, (ahora - t0) / duracionMs);
+    const eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = Math.round(inicio + (destino - inicio) * eased);
+    if (p < 1) requestAnimationFrame(paso);
+  }
+  requestAnimationFrame(paso);
+}
+
+// Genera un donut con CSS conic-gradient (evita los problemas de recorte/rotación
+// de un donut hecho a mano en SVG) + una leyenda clicable que actúa como filtro.
+function renderDonutHTML(data) {
+  const total = data.reduce((s, d) => s + d.value, 0);
+  let gradient = "var(--paper-dim)";
+  if (total > 0) {
+    let acumulado = 0;
+    const stops = data.filter((d) => d.value > 0).map((d) => {
+      const desde = (acumulado / total) * 100;
+      acumulado += d.value;
+      const hasta = (acumulado / total) * 100;
+      return `${d.color} ${desde.toFixed(2)}% ${hasta.toFixed(2)}%`;
+    });
+    gradient = `conic-gradient(${stops.join(", ")})`;
+  }
+  const legend = data.map((d) => `
+    <button type="button" class="legend-row ${d.active ? "active" : ""}" data-legend-id="${d.id}">
+      <span class="legend-dot" style="background:${d.color}"></span>
+      <span class="legend-label">${escapeHtml(d.label)}</span>
+      <span class="legend-value">${d.value}</span>
+    </button>
+  `).join("");
+  return `
+    <div class="donut-wrap">
+      <div class="donut-ring" style="background:${gradient}">
+        <div class="donut-center">
+          <div class="donut-total">${total}</div>
+          <div class="donut-total-label">TOTAL</div>
+        </div>
+      </div>
+      <div class="donut-legend">${legend || `<div class="empty-state">Sin datos.</div>`}</div>
+    </div>`;
+}
+
+// Genera un gráfico de barras simple en HTML/CSS (más robusto en pantallas chicas
+// que un SVG a medida) con barras clicables que actúan como filtro por año.
+function renderBarrasHTML(data) {
+  const max = Math.max(1, ...data.map((d) => d.value));
+  const cols = data.map((d) => `
+    <button type="button" class="bar-col ${d.active ? "active" : ""}" data-bar-id="${escapeHtml(d.id)}" title="${escapeHtml(d.label)}: ${d.value}">
+      <span class="bar-val">${d.value}</span>
+      <span class="bar-fill-wrap"><span class="bar-fill" style="height:${Math.round((d.value / max) * 100)}%"></span></span>
+      <span class="bar-lbl">${escapeHtml(d.label)}</span>
+    </button>
+  `).join("");
+  return `<div class="bar-chart">${cols}</div>`;
+}
+
+function renderGraficosDiplomas(items) {
+  const cont = document.getElementById("diplomas-charts");
+  if (!cont) return;
+
+  const porCategoria = DIPLOMA_CATEGORIAS.map((c) => ({
+    id: c.id,
+    label: c.nombre,
+    value: items.filter((i) => i.diplomaCategoria.id === c.id).length,
+    color: c.color,
+    active: FILTROS_DIPLOMAS.diploma.includes(c.id),
+  }));
+
+  const anios = getAniosUnicosDiplomas().slice().reverse(); // ascendente para leer la evolución
+  const porAnio = anios.map((a) => ({
+    id: a,
+    label: a === SIN_FECHA ? "S/F" : a,
+    value: items.filter((i) => i.anio === a && i.diplomaCategoria.id === "entregado").length,
+    active: FILTROS_DIPLOMAS.anios.includes(a),
+  }));
+
+  cont.innerHTML = `
+    <div class="viz-card">
+      <div class="viz-card-title">Distribución por estado <span class="viz-hint">(clic para filtrar)</span></div>
+      <div class="viz-card-body">
+        ${renderDonutHTML(porCategoria)}
+      </div>
+    </div>
+    <div class="viz-card">
+      <div class="viz-card-title">Diplomas entregados por año <span class="viz-hint">(clic para filtrar)</span></div>
+      <div class="viz-card-body">
+        ${porAnio.length ? renderBarrasHTML(porAnio) : `<div class="empty-state">Sin datos de años con estos filtros.</div>`}
+      </div>
+    </div>
+  `;
+
+  cont.querySelectorAll("[data-legend-id]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.legendId;
+      const idx = FILTROS_DIPLOMAS.diploma.indexOf(id);
+      if (idx === -1) FILTROS_DIPLOMAS.diploma.push(id); else FILTROS_DIPLOMAS.diploma.splice(idx, 1);
+      renderFiltrosDiplomas(); renderKanbanDiplomas();
+    });
+  });
+  cont.querySelectorAll("[data-bar-id]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const anio = btn.dataset.barId;
+      const idx = FILTROS_DIPLOMAS.anios.indexOf(anio);
+      if (idx === -1) FILTROS_DIPLOMAS.anios.push(anio); else FILTROS_DIPLOMAS.anios.splice(idx, 1);
+      renderFiltrosDiplomas(); renderKanbanDiplomas();
+    });
+  });
 }
 
 /* =========================================================================
@@ -855,8 +1128,10 @@ function getDatosExportSeguimiento() {
 
 function getDatosExportDiplomas() {
   const items = EXPORTAR_SOLO_FILTRADO_DIP ? getItemsDiplomasFiltrados() : getAllItemsDiplomas();
-  const headers = ["Declaración", "Eje de trabajo", "Estado del diploma"];
-  const rows = items.map((item) => [item.titulo, item.eje, item.diplomaCategoria.nombre]);
+  const headers = ["Declaración", "Eje de trabajo", "Año", "Estado del diploma", "Modo de entrega"];
+  const rows = items.map((item) => [
+    item.titulo, item.eje, item.anio, item.diplomaCategoria.nombre, item.modoEntrega ? item.modoEntrega.nombre : "",
+  ]);
   return { headers, rows };
 }
 
