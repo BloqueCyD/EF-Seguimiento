@@ -20,7 +20,7 @@ const COL = {
   diploma: "¿Pedimos el diploma?",
   fechaIngreso: "¿Fecha ingreso?",
   fechaAprobacion: "¿Fecha de aprobación?",
-  modoEntrega: "Modo de entrega", // "Con acto" / "Sin acto"
+  modoEntrega: "Modo de entrega", // texto libre: "Evento", "Salón", "En la oficina", etc.
 };
 
 // Valor especial para agrupar los proyectos sin año detectable.
@@ -89,19 +89,21 @@ function getDiplomaCategoria(row) {
   return DIPLOMA_CATEGORIAS.find((c) => c.id === id);
 }
 
-// Caracterización de la entrega: "Con acto" o "Sin acto", según la columna
-// "Modo de entrega" de la planilla. Devuelve null si todavía no está definida.
-const MODOS_ENTREGA = [
-  { id: "con_acto", nombre: "Con acto" },
-  { id: "sin_acto", nombre: "Sin acto" },
-];
+// Caracterización de la entrega, tal como está escrita en la columna
+// "Modo de entrega" de la planilla (ej: "Evento", "Salón", "En la oficina").
+// No se agrupa en categorías fijas: se toma el texto real de cada fila y se
+// prolija sólo la mayúscula inicial, para que "salón" y "Salón" cuenten como
+// el mismo valor a la hora de filtrar. Devuelve null si la celda está vacía.
+function capitalizarFrase(str) {
+  const limpio = str.replace(/\s+/g, " ").trim();
+  if (!limpio) return limpio;
+  return limpio.charAt(0).toUpperCase() + limpio.slice(1).toLowerCase();
+}
 
 function getModoEntrega(row) {
-  const v = normaliza(row[COL.modoEntrega]);
-  if (!v) return null;
-  if (v.includes("sin")) return MODOS_ENTREGA[1];
-  if (v.includes("con")) return MODOS_ENTREGA[0];
-  return null; // valor no reconocido, lo tratamos como "sin especificar"
+  const raw = (row[COL.modoEntrega] || "").toString().trim();
+  if (!raw) return null;
+  return { id: normaliza(raw), nombre: capitalizarFrase(raw) };
 }
 
 // Las 4 etapas del Kanban, en orden, con su color y la lógica de detección.
@@ -169,7 +171,7 @@ let FILTROS_DIPLOMAS = {
   eje: "TODOS",
   diploma: [],        // array vacío = todas las categorías
   anios: [],          // array vacío = todos los años
-  modoEntrega: [],    // array vacío = todos ("con_acto" / "sin_acto")
+  modoEntrega: [],    // array vacío = todos los modos de entrega cargados
   busqueda: "",
 };
 let autoRefreshTimer = null;
@@ -366,6 +368,17 @@ function getAniosUnicosDiplomas() {
     return Number(b) - Number(a);
   });
   return arr;
+}
+
+// Junta los valores reales (y únicos) que aparecen cargados en la columna
+// "Modo de entrega", para armar el filtro dinámicamente en vez de asumir
+// categorías fijas como "con/sin acto".
+function getModosEntregaUnicos() {
+  const map = new Map(); // id normalizado -> nombre prolijo
+  getAllItemsDiplomas().forEach((i) => {
+    if (i.modoEntrega) map.set(i.modoEntrega.id, i.modoEntrega.nombre);
+  });
+  return Array.from(map, ([id, nombre]) => ({ id, nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
 }
 
 function getEjesUnicos() {
@@ -801,6 +814,7 @@ function renderSelectorVista() {
 function renderFiltrosDiplomas() {
   const ejes = getEjesUnicosDiplomas();
   const anios = getAniosUnicosDiplomas();
+  const modos = getModosEntregaUnicos();
   const html = `
     <div class="filter-group" style="flex:2; min-width:220px;">
       <label>Buscar declaración</label>
@@ -832,12 +846,12 @@ function renderFiltrosDiplomas() {
       </div>
     </div>
     <div class="filter-group" style="min-width:220px;">
-      <label>Modo de entrega <span style="text-transform:none; font-weight:400; opacity:0.7;">(con o sin acto)</span></label>
+      <label>Modo de entrega <span style="text-transform:none; font-weight:400; opacity:0.7;">(elegí uno o varios)</span></label>
       <div class="filter-pills" id="fd-modo">
-        ${MODOS_ENTREGA.map((m) => {
+        ${modos.length ? modos.map((m) => {
           const activa = FILTROS_DIPLOMAS.modoEntrega.includes(m.id);
           return `<span class="pill ${activa?'active':''}" data-modo="${m.id}">${m.nombre}</span>`;
-        }).join("")}
+        }).join("") : `<span class="empty-state" style="font-size:11px;">Sin datos cargados</span>`}
       </div>
     </div>
     <button class="clear-filters" id="fd-clear">Limpiar filtros</button>
@@ -926,7 +940,7 @@ function renderKanbanDiplomas() {
 
 function renderCardDiploma(item) {
   const modoTag = item.modoEntrega
-    ? `<span class="tag modo-tag ${item.modoEntrega.id}">${item.modoEntrega.nombre}</span>`
+    ? `<span class="tag modo-tag">${item.modoEntrega.nombre}</span>`
     : "";
   return `
     <div class="kcard" style="cursor:default;">
