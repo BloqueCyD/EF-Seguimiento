@@ -171,7 +171,6 @@ let FILTROS_DIPLOMAS = {
   eje: "TODOS",
   diploma: [],        // array vacío = todas las categorías
   anios: [],          // array vacío = todos los años
-  modoEntrega: [],    // array vacío = todos los modos de entrega cargados
   busqueda: "",
 };
 let autoRefreshTimer = null;
@@ -342,9 +341,6 @@ function getItemsDiplomasFiltrados() {
   if (FILTROS_DIPLOMAS.eje !== "TODOS") items = items.filter((i) => i.eje === FILTROS_DIPLOMAS.eje);
   if (FILTROS_DIPLOMAS.diploma.length > 0) items = items.filter((i) => FILTROS_DIPLOMAS.diploma.includes(i.diplomaCategoria.id));
   if (FILTROS_DIPLOMAS.anios.length > 0) items = items.filter((i) => FILTROS_DIPLOMAS.anios.includes(i.anio));
-  if (FILTROS_DIPLOMAS.modoEntrega.length > 0) {
-    items = items.filter((i) => i.modoEntrega && FILTROS_DIPLOMAS.modoEntrega.includes(i.modoEntrega.id));
-  }
   if (FILTROS_DIPLOMAS.busqueda.trim() !== "") {
     const q = normaliza(FILTROS_DIPLOMAS.busqueda);
     items = items.filter((i) => normaliza(i.titulo).includes(q));
@@ -370,16 +366,6 @@ function getAniosUnicosDiplomas() {
   return arr;
 }
 
-// Junta los valores reales (y únicos) que aparecen cargados en la columna
-// "Modo de entrega", para armar el filtro dinámicamente en vez de asumir
-// categorías fijas como "con/sin acto".
-function getModosEntregaUnicos() {
-  const map = new Map(); // id normalizado -> nombre prolijo
-  getAllItemsDiplomas().forEach((i) => {
-    if (i.modoEntrega) map.set(i.modoEntrega.id, i.modoEntrega.nombre);
-  });
-  return Array.from(map, ([id, nombre]) => ({ id, nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
-}
 
 function getEjesUnicos() {
   const set = new Set();
@@ -438,11 +424,10 @@ function renderOverview() {
       <div class="value" style="color:var(--navy)" data-count="${ingresados}">0</div>
       <div class="sub">esperando tratamiento</div>
     </div>
-    <div class="stat-card chart-card">
+    <div class="stat-card">
       <div class="label">Eje con más actividad</div>
       <div class="value" style="font-size:19px; color:var(--ink);">${ejeTop ? ejeTop[0] : "—"}</div>
-      <div class="sub">${ejeTop ? ejeTop[1] + " proyectos" : ""}</div>
-      ${renderBarrasEjes(porEje, total)}
+      <div class="sub">${ejeTop ? ejeTop[1] + " proyectos — ver el detalle abajo, en Gráficos" : ""}</div>
     </div>
   `;
   document.getElementById("overview-stats").innerHTML = html;
@@ -473,6 +458,12 @@ function renderGraficosSeguimiento(items) {
     active: FILTROS.anios.includes(a),
   }));
 
+  const porEjeMap = {};
+  items.forEach((i) => { porEjeMap[i.eje] = (porEjeMap[i.eje] || 0) + 1; });
+  const porEje = Object.entries(porEjeMap)
+    .sort((a, b) => b[1] - a[1])
+    .map(([eje, count]) => ({ id: eje, label: eje, value: count, active: FILTROS.eje === eje }));
+
   cont.innerHTML = `
     <div class="viz-card">
       <div class="viz-card-title">Distribución por etapa <span class="viz-hint">(clic para filtrar)</span></div>
@@ -484,6 +475,12 @@ function renderGraficosSeguimiento(items) {
       <div class="viz-card-title">Proyectos por año <span class="viz-hint">(clic para filtrar)</span></div>
       <div class="viz-card-body">
         ${porAnio.length ? renderBarrasHTML(porAnio) : `<div class="empty-state">Sin datos de años con estos filtros.</div>`}
+      </div>
+    </div>
+    <div class="viz-card viz-card-wide">
+      <div class="viz-card-title">Ejes de trabajo con más actividad <span class="viz-hint">(clic para filtrar)</span></div>
+      <div class="viz-card-body">
+        ${porEje.length ? renderRankingHTML(porEje) : `<div class="empty-state">Sin datos con estos filtros.</div>`}
       </div>
     </div>
   `;
@@ -504,24 +501,15 @@ function renderGraficosSeguimiento(items) {
       renderFiltros(); renderOverview(); renderKanban(); renderTabla();
     });
   });
+  cont.querySelectorAll("[data-hbar-id]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const eje = btn.dataset.hbarId;
+      FILTROS.eje = (FILTROS.eje === eje) ? "TODOS" : eje;
+      renderFiltros(); renderOverview(); renderKanban(); renderTabla();
+    });
+  });
 }
 
-
-function renderBarrasEjes(porEje, total) {
-  const entries = Object.entries(porEje).sort((a, b) => b[1] - a[1]).slice(0, 5);
-  if (!entries.length) return "";
-  const max = entries[0][1];
-  return `<div style="margin-top:10px; display:flex; flex-direction:column; gap:5px;">
-    ${entries.map(([eje, count]) => `
-      <div style="display:flex; align-items:center; gap:7px;">
-        <div style="flex:1; background:var(--paper-dim); border-radius:3px; height:7px; overflow:hidden;">
-          <div style="width:${(count/max*100)}%; height:100%; background:var(--navy); border-radius:3px;"></div>
-        </div>
-        <div style="font-size:10.5px; color:var(--ink-soft); width:18px; text-align:right;">${count}</div>
-      </div>
-    `).join("")}
-  </div>`;
-}
 
 /* =========================================================================
    RENDER: filtros
@@ -814,7 +802,6 @@ function renderSelectorVista() {
 function renderFiltrosDiplomas() {
   const ejes = getEjesUnicosDiplomas();
   const anios = getAniosUnicosDiplomas();
-  const modos = getModosEntregaUnicos();
   const html = `
     <div class="filter-group" style="flex:2; min-width:220px;">
       <label>Buscar declaración</label>
@@ -843,15 +830,6 @@ function renderFiltrosDiplomas() {
           const activa = FILTROS_DIPLOMAS.anios.includes(a);
           return `<span class="pill ${activa?'active':''}" data-anio="${a}">${a}</span>`;
         }).join("")}
-      </div>
-    </div>
-    <div class="filter-group" style="min-width:220px;">
-      <label>Modo de entrega <span style="text-transform:none; font-weight:400; opacity:0.7;">(elegí uno o varios)</span></label>
-      <div class="filter-pills" id="fd-modo">
-        ${modos.length ? modos.map((m) => {
-          const activa = FILTROS_DIPLOMAS.modoEntrega.includes(m.id);
-          return `<span class="pill ${activa?'active':''}" data-modo="${m.id}">${m.nombre}</span>`;
-        }).join("") : `<span class="empty-state" style="font-size:11px;">Sin datos cargados</span>`}
       </div>
     </div>
     <button class="clear-filters" id="fd-clear">Limpiar filtros</button>
@@ -884,17 +862,8 @@ function renderFiltrosDiplomas() {
       renderFiltrosDiplomas(); renderKanbanDiplomas();
     });
   });
-  document.querySelectorAll("#fd-modo .pill").forEach((pill) => {
-    pill.addEventListener("click", () => {
-      const id = pill.dataset.modo;
-      const idx = FILTROS_DIPLOMAS.modoEntrega.indexOf(id);
-      if (idx === -1) FILTROS_DIPLOMAS.modoEntrega.push(id);
-      else FILTROS_DIPLOMAS.modoEntrega.splice(idx, 1);
-      renderFiltrosDiplomas(); renderKanbanDiplomas();
-    });
-  });
   document.getElementById("fd-clear").addEventListener("click", () => {
-    FILTROS_DIPLOMAS = { eje: "TODOS", diploma: [], anios: [], modoEntrega: [], busqueda: "" };
+    FILTROS_DIPLOMAS = { eje: "TODOS", diploma: [], anios: [], busqueda: "" };
     renderFiltrosDiplomas(); renderKanbanDiplomas();
   });
 }
@@ -1019,6 +988,20 @@ function renderBarrasHTML(data) {
   return `<div class="bar-chart">${cols}</div>`;
 }
 
+// Ranking horizontal clicable — se usa para "ejes de trabajo con más actividad".
+// Cada fila filtra por ese eje al hacer clic (y vuelve a "todos" si ya estaba activo).
+function renderRankingHTML(data) {
+  const max = Math.max(1, ...data.map((d) => d.value));
+  const filas = data.map((d) => `
+    <button type="button" class="hbar-row ${d.active ? "active" : ""}" data-hbar-id="${escapeHtml(d.id).replace(/"/g, "&quot;")}">
+      <span class="hbar-label">${escapeHtml(d.label)}</span>
+      <span class="hbar-track"><span class="hbar-fill" style="width:${Math.round((d.value / max) * 100)}%"></span></span>
+      <span class="hbar-value">${d.value}</span>
+    </button>
+  `).join("");
+  return `<div class="hbar-list">${filas}</div>`;
+}
+
 function renderGraficosDiplomas(items) {
   const cont = document.getElementById("diplomas-charts");
   if (!cont) return;
@@ -1039,6 +1022,12 @@ function renderGraficosDiplomas(items) {
     active: FILTROS_DIPLOMAS.anios.includes(a),
   }));
 
+  const porEjeMap = {};
+  items.forEach((i) => { porEjeMap[i.eje] = (porEjeMap[i.eje] || 0) + 1; });
+  const porEje = Object.entries(porEjeMap)
+    .sort((a, b) => b[1] - a[1])
+    .map(([eje, count]) => ({ id: eje, label: eje, value: count, active: FILTROS_DIPLOMAS.eje === eje }));
+
   cont.innerHTML = `
     <div class="viz-card">
       <div class="viz-card-title">Distribución por estado <span class="viz-hint">(clic para filtrar)</span></div>
@@ -1050,6 +1039,12 @@ function renderGraficosDiplomas(items) {
       <div class="viz-card-title">Diplomas entregados por año <span class="viz-hint">(clic para filtrar)</span></div>
       <div class="viz-card-body">
         ${porAnio.length ? renderBarrasHTML(porAnio) : `<div class="empty-state">Sin datos de años con estos filtros.</div>`}
+      </div>
+    </div>
+    <div class="viz-card viz-card-wide">
+      <div class="viz-card-title">Ejes de trabajo con más actividad <span class="viz-hint">(clic para filtrar)</span></div>
+      <div class="viz-card-body">
+        ${porEje.length ? renderRankingHTML(porEje) : `<div class="empty-state">Sin datos con estos filtros.</div>`}
       </div>
     </div>
   `;
@@ -1067,6 +1062,13 @@ function renderGraficosDiplomas(items) {
       const anio = btn.dataset.barId;
       const idx = FILTROS_DIPLOMAS.anios.indexOf(anio);
       if (idx === -1) FILTROS_DIPLOMAS.anios.push(anio); else FILTROS_DIPLOMAS.anios.splice(idx, 1);
+      renderFiltrosDiplomas(); renderKanbanDiplomas();
+    });
+  });
+  cont.querySelectorAll("[data-hbar-id]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const eje = btn.dataset.hbarId;
+      FILTROS_DIPLOMAS.eje = (FILTROS_DIPLOMAS.eje === eje) ? "TODOS" : eje;
       renderFiltrosDiplomas(); renderKanbanDiplomas();
     });
   });
