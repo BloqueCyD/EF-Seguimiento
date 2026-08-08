@@ -136,14 +136,6 @@ const ETAPAS = [
   },
 ];
 
-// Qué columnas reales se escriben en el Sheet cuando el usuario mueve
-// una tarjeta a cada etapa (movimiento manual desde la web).
-const ESCRITURA_POR_ETAPA = {
-  redactado: { [COL.hecha]: "Hecho", [COL.ingresada]: "Sin ingresar", [COL.estadoParlamentario]: "", [COL.aprobado]: "" },
-  ingresado: { [COL.hecha]: "Hecho", [COL.ingresada]: "Ingresada", [COL.estadoParlamentario]: "No", [COL.aprobado]: "" },
-  comision: { [COL.hecha]: "Hecho", [COL.ingresada]: "Ingresada", [COL.estadoParlamentario]: "Sí", [COL.aprobado]: "" },
-  aprobado: { [COL.hecha]: "Hecho", [COL.ingresada]: "Ingresada", [COL.estadoParlamentario]: "Sí", [COL.aprobado]: "Aprobado" },
-};
 
 // Nombres "bonitos" para cada hoja, y a qué columna corresponde el
 // nombre del proyecto/declaración, porque no se llaman igual en todas las hojas.
@@ -625,15 +617,13 @@ function renderKanban() {
       </div>
     `;
   }).join("");
-
-  attachDragEvents();
 }
 
 function renderCard(item) {
   const cfg = HOJAS_CONFIG[item.sheet];
   const uid = item.row._rowNumber + "::" + item.sheet;
   return `
-    <div class="kcard" draggable="true" data-uid="${uid}" data-sheet="${item.sheet}" data-row="${item.row._rowNumber}">
+    <div class="kcard" data-uid="${uid}" data-sheet="${item.sheet}" data-row="${item.row._rowNumber}">
       <span class="title">${escapeHtml(item.titulo)}</span>
       <div class="meta">
         <span class="tag hoja-tag">${cfg.etiqueta}</span>
@@ -646,72 +636,6 @@ function renderCard(item) {
 function escapeHtml(str) {
   if (str === null || str === undefined) return "";
   return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-}
-
-let draggedUid = null;
-
-function attachDragEvents() {
-  document.querySelectorAll(".kcard").forEach((card) => {
-    card.addEventListener("dragstart", (e) => {
-      draggedUid = card.dataset.uid;
-      card.classList.add("dragging");
-      e.dataTransfer.effectAllowed = "move";
-    });
-    card.addEventListener("dragend", () => {
-      card.classList.remove("dragging");
-    });
-  });
-
-  document.querySelectorAll(".kcol-body").forEach((col) => {
-    col.addEventListener("dragover", (e) => {
-      e.preventDefault();
-      col.classList.add("drag-over");
-    });
-    col.addEventListener("dragleave", () => col.classList.remove("drag-over"));
-    col.addEventListener("drop", (e) => {
-      e.preventDefault();
-      col.classList.remove("drag-over");
-      const nuevaEtapa = col.dataset.etapa;
-      if (draggedUid) moverItem(draggedUid, nuevaEtapa);
-    });
-  });
-}
-
-async function moverItem(uid, nuevaEtapaId) {
-  const [rowNumberStr, sheetName] = uid.split("::");
-  const rowNumber = parseInt(rowNumberStr, 10);
-  const updates = ESCRITURA_POR_ETAPA[nuevaEtapaId];
-
-  // Optimistic UI: actualizamos localmente antes de confirmar el guardado
-  const hoja = RAW_DATA[sheetName];
-  const rowObj = hoja.rows.find((r) => r._rowNumber === rowNumber);
-  if (!rowObj) return;
-  const backup = { ...rowObj };
-  Object.assign(rowObj, updates);
-  renderOverview(); renderKanban(); renderTabla();
-
-  showToast("Guardando cambio…");
-  try {
-    const res = await fetch(APPS_SCRIPT_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({
-        action: "updateMultiple",
-        sheet: sheetName,
-        rowNumber: rowNumber,
-        updates: updates,
-      }),
-    });
-    const json = await res.json();
-    if (!json.success) throw new Error(json.error || "Error al guardar");
-    showToast("Guardado en la planilla ✓");
-  } catch (err) {
-    console.error(err);
-    // revertimos si falló
-    Object.assign(rowObj, backup);
-    renderOverview(); renderKanban(); renderTabla();
-    showToast("No se pudo guardar: " + err.message, true);
-  }
 }
 
 /* =========================================================================
@@ -912,7 +836,7 @@ function renderCardDiploma(item) {
     ? `<span class="tag modo-tag">${item.modoEntrega.nombre}</span>`
     : "";
   return `
-    <div class="kcard" style="cursor:default;">
+    <div class="kcard">
       <span class="title">${escapeHtml(item.titulo)}</span>
       <div class="meta">
         <span class="tag">${escapeHtml(item.eje)}</span>
