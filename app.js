@@ -106,27 +106,25 @@ function getModoEntrega(row) {
   return { id: normaliza(raw), nombre: capitalizarFrase(raw) };
 }
 
-// Las 4 etapas del Kanban, en orden, con su color y la lógica de detección.
-// "match" decide a qué etapa pertenece una fila. Se evalúa de abajo hacia
-// arriba (chequea primero si está aprobado, luego en comisión, etc.)
+// Las 3 etapas del Kanban de Seguimiento, en orden, con su color y la
+// lógica de detección. "match" decide a qué etapa pertenece una fila.
+// Se evalúa de abajo hacia arriba (chequea primero "Aprobado", después
+// "Ingresado", y lo que quede cae en "Sin ingresar/Sin estado parlamentario").
 const ETAPAS = [
   {
-    id: "redactado",
-    nombre: "Redactado",
+    id: "sin_ingresar",
+    nombre: "Sin ingresar / Sin estado parlamentario",
     color: "#9C8B5E",
-    match: (row) => normaliza(row[COL.hecha]) === "hecho" && !esIngresada(row),
+    // Todo lo que NO figure como "Ingresada" en ¿La ingresamos?, o que
+    // sí esté ingresado pero todavía no tenga Estado parlamentario = Sí.
+    match: (row) => !esIngresada(row) || normaliza(row[COL.estadoParlamentario]) !== "si",
   },
   {
     id: "ingresado",
     nombre: "Ingresado",
     color: "#1E3A5F",
-    match: (row) => esIngresada(row) && normaliza(row[COL.estadoParlamentario]) !== "si",
-  },
-  {
-    id: "comision",
-    nombre: "En comisión",
-    color: "#C08A2E",
-    match: (row) => normaliza(row[COL.estadoParlamentario]) === "si" && normaliza(row[COL.aprobado]) !== "aprobado",
+    // "Ingresada" en ¿La ingresamos? Y con Estado parlamentario = Sí.
+    match: (row) => esIngresada(row) && normaliza(row[COL.estadoParlamentario]) === "si",
   },
   {
     id: "aprobado",
@@ -155,7 +153,7 @@ let VISTA_ACTIVA = "seguimiento"; // "seguimiento" | "diplomas"
 let FILTROS = {
   hoja: "TODAS",
   eje: "TODOS",
-  etapas: [],         // array vacío = todas. Ej: ["redactado","aprobado"]
+  etapas: [],         // array vacío = todas. Ej: ["sin_ingresar","aprobado"]
   anios: [],          // array vacío = todos. Ej: ["2024","2025"]
   busqueda: "",
 };
@@ -190,7 +188,7 @@ function getEtapa(row) {
   for (let i = ETAPAS.length - 1; i >= 0; i--) {
     if (ETAPAS[i].match(row)) return ETAPAS[i];
   }
-  return ETAPAS[0]; // por defecto: redactado / sin info
+  return ETAPAS[0]; // por defecto: sin ingresar / sin info
 }
 
 function getTitulo(row, sheetName) {
@@ -386,9 +384,8 @@ function renderOverview() {
   const items = getItemsFiltrados();
   const total = items.length;
   const aprobados = items.filter((i) => i.etapa.id === "aprobado").length;
-  const enComision = items.filter((i) => i.etapa.id === "comision").length;
   const ingresados = items.filter((i) => i.etapa.id === "ingresado").length;
-  const redactados = items.filter((i) => i.etapa.id === "redactado").length;
+  const sinIngresar = items.filter((i) => i.etapa.id === "sin_ingresar").length;
   const pct = total ? Math.round((aprobados / total) * 100) : 0;
 
   const porEje = {};
@@ -407,14 +404,14 @@ function renderOverview() {
       <div class="sub">${pct}% del total filtrado</div>
     </div>
     <div class="stat-card">
-      <div class="label">En comisión</div>
-      <div class="value" style="color:var(--ochre)" data-count="${enComision}">0</div>
-      <div class="sub">con giro parlamentario activo</div>
-    </div>
-    <div class="stat-card">
       <div class="label">Ingresados</div>
       <div class="value" style="color:var(--navy)" data-count="${ingresados}">0</div>
-      <div class="sub">esperando tratamiento</div>
+      <div class="sub">con estado parlamentario activo</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Sin ingresar / sin estado</div>
+      <div class="value" style="color:var(--ochre)" data-count="${sinIngresar}">0</div>
+      <div class="sub">todavía no tienen giro parlamentario</div>
     </div>
     <div class="stat-card">
       <div class="label">Eje con más actividad</div>
